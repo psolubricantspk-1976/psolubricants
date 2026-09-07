@@ -1,0 +1,397 @@
+@import "tailwindcss";
+
+@theme {
+  /* PSO brand: blue disc · green crescent · white — no yellow in the UI */
+  --color-coal: #041d3f;
+  --color-steel: #072951;
+  --color-steel2: #0b3260;
+  --color-line: #14427c;
+  --color-line2: #1d559b;
+  --color-fog: #8fb0d6;
+  --color-fog2: #cfe0f2;
+  --color-paper: #f7fbff;
+  --color-cream: #f2f7fc;
+  --color-sand: #cfdcea;
+  --color-clay: #4f6584;
+  --color-ink: #0a2b55;
+  --color-oil: #00a651;
+  --color-oildim: #00703a;
+  --color-rust: #d64545;
+  --color-moss: #00843d;
+
+  --font-display: "Saira Condensed", ui-sans-serif, sans-serif;
+  --font-body: "Archivo", ui-sans-serif, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--color-coal);
+  color: var(--color-paper);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--color-oil);
+  color: var(--color-coal);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line2) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-line2);
+  border-radius: 8px;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-oil);
+  outline-offset: 2px;
+}
+
+/* ---- reveal on scroll ---- */
+.reveal {
+  opacity: 0;
+  transform: translateY(18px);
+  transition:
+    opacity 0.75s cubic-bezier(0.2, 0.7, 0.2, 1),
+    transform 0.75s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.reveal.in {
+  opacity: 1;
+  transform: none;
+}
+
+/* ---- spec marquee ---- */
+@keyframes marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+.marquee {
+  animation: marquee 40s linear infinite;
+}
+.marquee:hover {
+  animation-play-state: paused;
+}
+
+/* ---- slow gear spin ---- */
+@keyframes spin-slow {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.spin-slow {
+  animation: spin-slow 26s linear infinite;
+  transform-origin: center;
+}
+
+/* ---- oil drip ---- */
+@keyframes drip {
+  0% {
+    transform: translateY(-6px) scaleY(0.85);
+    opacity: 0;
+  }
+  18% {
+    opacity: 1;
+  }
+  70% {
+    transform: translateY(46px) scaleY(1.05);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(58px) scaleY(0.6);
+    opacity: 0;
+  }
+}
+.drip {
+  animation: drip 3.2s cubic-bezier(0.5, 0, 0.8, 0.4) infinite;
+  transform-origin: top center;
+}
+
+/* ---- line draw ---- */
+@keyframes draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+.draw {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: draw 1.6s 0.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+/* ---- hazard stripe band ---- */
+.hazard {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgba(0, 166, 81, 0.22) 0 12px,
+    transparent 12px 24px
+  );
+}
+
+/* ---- blueprint grid (dark sections) ---- */
+.grid-bg {
+  background-image:
+    linear-gradient(rgba(0, 166, 81, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(29, 85, 155, 0.1) 1px, transparent 1px);
+  background-size: 46px 46px;
+}
+
+/* ---- paper grid (light sections) ---- */
+.grid-light {
+  background-image:
+    linear-gradient(rgba(11, 35, 64, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(11, 35, 64, 0.06) 1px, transparent 1px);
+  background-size: 46px 46px;
+}
+
+/* ---- noise overlay ---- */
+.noise {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  opacity: 0.045;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ---- heavy motion: rotating brand roundels ---- */
+.spin-slower {
+  animation: spin-slow 60s linear infinite;
+  transform-origin: center;
+}
+@keyframes spin-rev {
+  to {
+    transform: rotate(-360deg);
+  }
+}
+.spin-rev {
+  animation: spin-rev 38s linear infinite;
+  transform-origin: center;
+}
+
+/* ---- floating oil drops ---- */
+@keyframes floatUp {
+  0% {
+    transform: translateY(40px) scale(0.85);
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.55;
+  }
+  75% {
+    opacity: 0.3;
+  }
+  100% {
+    transform: translateY(-160px) scale(1.1);
+    opacity: 0;
+  }
+}
+.float-drop {
+  animation: floatUp 7s linear infinite;
+}
+
+/* ---- pulsing brand glow ---- */
+@keyframes glowpulse {
+  0%,
+  100% {
+    opacity: 0.16;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.34;
+    transform: scale(1.08);
+  }
+}
+.glow-pulse {
+  animation: glowpulse 6s ease-in-out infinite;
+}
+
+/* ---- cursor bubble trail ---- */
+.cursor-orb {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 45;
+  pointer-events: none;
+  border-radius: 9999px;
+  will-change: transform;
+}
+
+@keyframes bubblePop {
+  0% {
+    transform: translate(-50%, -50%) scale(0.2);
+    opacity: 0.85;
+  }
+  70% {
+    opacity: 0.35;
+  }
+  100% {
+    transform: translate(-50%, -160%) scale(1.25);
+    opacity: 0;
+  }
+}
+.bubble-pop {
+  animation: bubblePop 1.15s cubic-bezier(0.25, 0.6, 0.35, 1) forwards;
+}
+
+/* ---- click ripple ---- */
+@keyframes clickRipple {
+  0% {
+    transform: translate(-50%, -50%) scale(0.3);
+    opacity: 0.65;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(3.2);
+    opacity: 0;
+  }
+}
+.click-ripple {
+  animation: clickRipple 0.7s ease-out forwards;
+}
+
+/* ---- gradient text shimmer ---- */
+@keyframes shimmerMove {
+  to {
+    background-position: 200% center;
+  }
+}
+.shimmer-text {
+  background-size: 200% auto;
+  animation: shimmerMove 4s linear infinite;
+}
+
+/* ---- soft float for cards ---- */
+@keyframes floatSoft {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-7px);
+  }
+}
+.float-soft {
+  animation: floatSoft 6s ease-in-out infinite;
+}
+
+/* ---- tilt/lift on hover ---- */
+.lift-hover {
+  transition:
+    transform 0.35s cubic-bezier(0.2, 0.7, 0.2, 1),
+    box-shadow 0.35s ease;
+}
+.lift-hover:hover {
+  transform: translateY(-6px) scale(1.015);
+}
+
+/* ---- animated underline sweep ---- */
+.underline-sweep {
+  position: relative;
+}
+.underline-sweep::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -3px;
+  height: 2px;
+  width: 100%;
+  background: currentColor;
+  transform: scaleX(0);
+  transform-origin: right;
+  transition: transform 0.35s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.underline-sweep:hover::after {
+  transform: scaleX(1);
+  transform-origin: left;
+}
+
+/* ---- pulsing ring for live badges ---- */
+@keyframes ringPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(0, 166, 81, 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 12px rgba(0, 166, 81, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(0, 166, 81, 0);
+  }
+}
+.ring-pulse {
+  animation: ringPulse 2.4s ease-out infinite;
+}
+
+/* respect reduced-motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  .cursor-orb,
+  .bubble-pop,
+  .click-ripple {
+    display: none !important;
+  }
+  .float-soft,
+  .shimmer-text,
+  .ring-pulse,
+  .marquee,
+  .spin-slow,
+  .spin-slower,
+  .spin-rev,
+  .float-drop,
+  .glow-pulse,
+  .rate-wave-line,
+  .rate-wave-fill {
+    animation: none !important;
+  }
+}
+
+/* ---- petrol rate wave ---- */
+@keyframes waveShift {
+  0% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(-18px);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+.rate-wave-line {
+  animation: waveShift 4.5s ease-in-out infinite;
+}
+.rate-wave-fill {
+  animation: waveShift 6s ease-in-out infinite reverse;
+  opacity: 0.9;
+}
+
+/* ---- shine sweep on primary buttons ---- */
+.shine {
+  position: relative;
+  overflow: hidden;
+}
+.shine::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(115deg, transparent 30%, rgba(255, 255, 255, 0.45) 50%, transparent 70%);
+  transform: translateX(-130%);
+  transition: transform 0.7s ease;
+  pointer-events: none;
+}
+.shine:hover::after {
+  transform: translateX(130%);
+}
