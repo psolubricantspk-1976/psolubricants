@@ -53,6 +53,8 @@ In **Vercel → your `psolubricants` project → Settings → Environment Variab
 | `VITE_SUPABASE_PUBLISHABLE_KEY` | The project's publishable key (or legacy `anon` key) |
 | `VITE_TURNSTILE_SITE_KEY` | Public Turnstile site key, if CAPTCHA is enabled |
 
+If the Supabase–Vercel integration has already created public settings, this build also recognizes `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, and `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_PUBLISHABLE_KEY`. Explicit `VITE_` settings take precedence. Only the validated public URL and public key are mapped into the website; database passwords and service-role keys are never used as fallbacks. An integration connection does not create this application's database tables or admin membership—complete steps 2, 3 and 5 as well.
+
 Select **Production** and **Preview** if both deployments should connect to this database. A separate Supabase project for preview/test data is preferable for long-term use.
 
 **Never use a `service_role` key, `sb_secret_...` key, database password, or admin password in a `VITE_` variable. Vite embeds those variables in the public website.**

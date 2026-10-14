@@ -4,21 +4,24 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig, loadEnv } from "vite";
 import { viteSingleFile } from "vite-plugin-singlefile";
+import { resolveCloudConfig } from "./scripts/validate-cloud-config";
 
-import { validateCloudConfig } from "./scripts/validate-cloud-config";
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// https://vite.dev/config/
 export default defineConfig(({ mode }) => {
-  validateCloudConfig({ ...loadEnv(mode, __dirname, "VITE_"), ...process.env });
+  // Vercel integrations may create NEXT_PUBLIC_* or unprefixed settings.
+  // Read them at build time, but expose ONLY the validated public URL and key.
+  const config = resolveCloudConfig({ ...loadEnv(mode, __dirname, ""), ...process.env });
   return {
-  plugins: [react(), tailwindcss(), viteSingleFile()],
-  resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "src"),
+    plugins: [react(), tailwindcss(), viteSingleFile()],
+    define: {
+      "import.meta.env.VITE_SUPABASE_URL": JSON.stringify(config.url),
+      "import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY": JSON.stringify(config.key),
     },
-  },
+    resolve: {
+      alias: {
+        "@": path.resolve(__dirname, "src"),
+      },
+    },
   };
 });

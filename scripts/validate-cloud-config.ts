@@ -1,3 +1,18 @@
+type Environment = Record<string, string | undefined>;
+
+/** Map only explicitly allowlisted PUBLIC values; never expose entire server env prefixes. */
+export function resolveCloudConfig(env: Environment) {
+  const first = (...names: string[]) => names.map((name) => env[name]?.trim()).find(Boolean);
+  const url = first("VITE_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_URL");
+  const key = first(
+    "VITE_SUPABASE_PUBLISHABLE_KEY", "VITE_SUPABASE_ANON_KEY",
+    "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+    "SUPABASE_PUBLISHABLE_KEY", "SUPABASE_ANON_KEY",
+  );
+  validateCloudConfig({ VITE_SUPABASE_URL: url, VITE_SUPABASE_PUBLISHABLE_KEY: key });
+  return { url: url ?? "", key: key ?? "" };
+}
+
 // Runs before Vite builds so accidentally supplied secret keys never reach the bundle.
 export function validateCloudConfig(env: Record<string, string | undefined>) {
   const url = env.VITE_SUPABASE_URL?.trim();
