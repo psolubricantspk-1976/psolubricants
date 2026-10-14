@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Flask, Thermo, Shield, Recycle } from "../icons";
 import { Reveal, SectionHead } from "../ui";
 
@@ -9,17 +10,36 @@ const FEATURES = [
 ];
 
 export default function WhyChooseUs() {
+  const [motionPaused, setMotionPaused] = useState(false);
+
   return (
     <section id="why" className="grid-light scroll-mt-24 bg-cream">
       <div className="mx-auto grid max-w-7xl items-center gap-12 px-5 py-20 sm:px-8 lg:grid-cols-2 lg:py-28">
         <Reveal>
           <div className="relative">
-            <img
-              src="/images/lab.jpg"
-              alt="Scientist testing motor oil in PSO lab"
-              className="rounded-2xl object-cover shadow-2xl shadow-black/30"
-              loading="lazy"
-            />
+            <div className="relative isolate overflow-hidden rounded-2xl bg-steel shadow-2xl shadow-black/30">
+              <img
+                id="quality-lab-photo"
+                src="/images/lab.jpg"
+                alt="Scientist testing motor oil in PSO lab"
+                className="lab-photo-motion block aspect-[3/2] w-full object-cover"
+                style={{ animationPlayState: motionPaused ? "paused" : undefined }}
+                loading="lazy"
+                decoding="async"
+              />
+              <button
+                type="button"
+                onClick={() => setMotionPaused((paused) => !paused)}
+                aria-label={motionPaused ? "Play photo animation" : "Pause photo animation"}
+                aria-controls="quality-lab-photo"
+                className="absolute top-4 right-4 inline-flex min-h-11 items-center gap-2 rounded-full border border-white/30 bg-coal/80 px-4 py-2 text-xs font-medium text-white backdrop-blur transition-colors hover:bg-coal focus-visible:outline-white motion-reduce:hidden"
+              >
+                <svg aria-hidden="true" viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="currentColor">
+                  {motionPaused ? <path d="M4 2.5v11L13 8z" /> : <path d="M3 2h3v12H3zm7 0h3v12h-3z" />}
+                </svg>
+                {motionPaused ? "Play motion" : "Pause motion"}
+              </button>
+            </div>
             <div className="float-soft absolute -bottom-5 -right-3 rounded-xl border border-moss/40 bg-moss/15 p-4 backdrop-blur sm:-right-6">
               <div className="font-display text-3xl font-extrabold text-moss">99.8%</div>
               <div className="mt-0.5 font-mono text-[10px] tracking-[0.18em] text-moss uppercase">Batch quality pass rate</div>

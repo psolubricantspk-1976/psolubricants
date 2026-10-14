@@ -357,6 +357,30 @@ body {
   animation: ringPulse 2.4s ease-out infinite;
 }
 
+/* Gentle photo motion: transform-only, with no video download. */
+@keyframes labPhotoPan {
+  from {
+    transform: scale(1.025) translateX(-0.4%);
+  }
+  to {
+    transform: scale(1.11) translateX(0.8%);
+  }
+}
+.lab-photo-motion {
+  transform-origin: 42% 38%;
+  animation: labPhotoPan 12s ease-in-out infinite alternate;
+  animation-play-state: paused;
+}
+.reveal.in .lab-photo-motion {
+  animation-play-state: running;
+}
+@media (prefers-reduced-motion: reduce) {
+  .lab-photo-motion {
+    animation: none;
+    transform: none;
+  }
+}
+
 /* respect reduced-motion preferences */
 @media (prefers-reduced-motion: reduce) {
   .cursor-orb,
