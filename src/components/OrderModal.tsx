@@ -1,9 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PRODUCTS, DELIVERY_ZONES } from "../data";
-import { useOrders, formatMoney, getDeliveryFee, PAYMENT_METHODS, RECEIVING_NUMBER, type PaymentMethod } from "../orders";
+import { createCheckout, formatMoney, getDeliveryFee, PAYMENT_METHODS, RECEIVING_NUMBER, type PaymentMethod } from "../orders";
 import { useCustomerAuth } from "../customerAuth";
 import { waLink } from "../whatsapp";
 import { Box, Check, Close, Copy, Logo, Trash, WhatsApp } from "../icons";
+import { cloudConfigured, errorMessage } from "../cloud";
+import { useCloudAuth } from "../CloudAuth";
+import ConnectionNotice from "./ConnectionNotice";
+import Captcha, { captchaEnabled } from "./Captcha";
 import { cn } from "../utils/cn";
 
 export type CartItem = { productId: string; qty: number };
@@ -27,7 +31,12 @@ export default function OrderModal({
   onClear: () => void;
   onOrderPlaced: () => void;
 }) {
-  const { addOrder } = useOrders();
+  const { session } = useCloudAuth();
+  const [submitting, setSubmitting] = useState(false);
+  const sending = useRef(false);
+  const [submitError, setSubmitError] = useState("");
+  const [captchaToken, setCaptchaToken] = useState("");
+  const [captchaReset, setCaptchaReset] = useState(0);
   const { customer, updateProfile } = useCustomerAuth();
 
   const [name, setName] = useState("");
@@ -79,8 +88,9 @@ export default function OrderModal({
     setZone("spunjab");
   };
 
-  const placeOrder = (e: React.FormEvent) => {
+  const placeOrder = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (sending.current) return;
     const next: Record<string, string> = {};
     if (name.trim().length < 2) next.name = "Required";
     if (!/^\d{10,14}$/.test(phone.replace(/\D/g, ""))) next.phone = "Required";
@@ -91,35 +101,27 @@ export default function OrderModal({
     setErrors(next);
     if (Object.keys(next).length > 0) return;
 
-    const created: { id: string; tracking: string }[] = [];
-    items.forEach((it) => {
-      const p = PRODUCTS.find((x) => x.id === it.productId);
-      if (!p) return;
-      const o = addOrder({
-        productId: p.id,
-        productName: p.name,
-        grade: p.grade,
-        qty: it.qty,
-        unitPrice: p.price,
-        deliveryFee,
-        total: p.price * it.qty + deliveryFee / Math.max(1, items.length),
-        customer: name,
-        phone,
-        email,
-        address,
-        city,
-        zone,
-        method,
-        accountLabel: "",
-        accountNumber: "",
-        transactionId: txId,
-        notes,
-      });
-      created.push(o);
-    });
-    if (created.length) setResult({ id: created[0].id, tracking: created[0].tracking, total });
-    if (customer) updateProfile({ phone, address, city });
-    onOrderPlaced();
+    if (!items.length) return;
+    sending.current = true;
+    setSubmitting(true);
+    setSubmitError("");
+    try {
+      const created = await createCheckout(items, {
+        customer: name.trim(), phone, email: email.trim(), address: address.trim(),
+        city: city.trim(), zone, method, transactionId: txId.trim(), notes: notes.trim(),
+      }, captchaToken);
+      setResult({ id: created[0].id, tracking: created[0].tracking, total: created.reduce((sum, order) => sum + order.total, 0) });
+      onOrderPlaced();
+      // Profile convenience must never turn a confirmed order into an apparent failure.
+      if (customer) void updateProfile({ phone, address, city }).catch(() => {});
+    } catch (error) {
+      setSubmitError(errorMessage(error));
+    } finally {
+      sending.current = false;
+      setSubmitting(false);
+      setCaptchaToken("");
+      setCaptchaReset((value) => value + 1);
+    }
   };
 
   if (!open) return null;
@@ -159,7 +161,7 @@ export default function OrderModal({
                 <Check className="h-8 w-8" />
               </span>
               <h2 className="font-display mt-5 text-3xl font-extrabold tracking-wide text-[#0b2545] uppercase">Order placed</h2>
-              <p className="mt-2 text-[13px] text-slate-500">Keep these codes — you'll need them to track your dispatch from Khanewal.</p>
+              <p className="mt-2 text-[13px] text-slate-500">Saved online. Keep these codes and use your order phone number to track your dispatch.</p>
               <div className="mx-auto mt-7 grid max-w-md gap-3 sm:grid-cols-2">
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-left">
                   <p className="font-mono text-[9.5px] tracking-[0.2em] text-slate-500 uppercase">Order number</p>
@@ -196,6 +198,7 @@ export default function OrderModal({
           ) : (
             /* ---------- form ---------- */
             <form onSubmit={placeOrder} noValidate>
+              <fieldset disabled={submitting} className="min-w-0">
               <div className="grid gap-8 px-5 py-6 sm:px-7 lg:grid-cols-[0.9fr_1.1fr]">
                 {/* left: your order */}
                 <div>
@@ -365,14 +368,17 @@ export default function OrderModal({
               </div>
 
               <div className="border-t border-slate-200 bg-slate-50 px-5 py-4 sm:px-7">
+                <ConnectionNotice error={submitError} />
+                {!session && <Captcha onToken={setCaptchaToken} resetKey={captchaReset} />}
                 <button
                   type="submit"
-                  disabled={items.length === 0}
+                  disabled={!cloudConfigured || submitting || items.length === 0 || (captchaEnabled && !session && !captchaToken)}
                   className="w-full rounded-full bg-[#009a44] py-3.5 font-display text-[14px] font-bold tracking-wide text-white uppercase transition-colors hover:bg-[#007a38] disabled:opacity-40"
                 >
-                  Place order · {formatMoney(total)}
+                  {submitting ? "Saving your order…" : `Place order · ${formatMoney(total)}`}
                 </button>
               </div>
+              </fieldset>
             </form>
           )}
         </div>

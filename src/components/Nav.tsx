@@ -1,3 +1,4 @@
+import { errorMessage } from "../cloud";
 import { useState } from "react";
 import { scrollToId, useActiveSection, useScrolled } from "../hooks";
 import { Arrow, Box, Cart, Grid, Logo, Phone, User } from "../icons";
@@ -132,7 +133,7 @@ export default function Nav({
                   via {customer.provider}
                 </span>
                 <button
-                  onClick={() => { logout(); setAccountMenu(false); }}
+                  onClick={() => { void logout().then(() => setAccountMenu(false)).catch((error) => window.alert(errorMessage(error))); }}
                   className="mt-3 w-full rounded-full border border-line py-2 font-mono text-[11px] text-fog2 transition-colors hover:border-rust hover:text-rust"
                 >
                   Sign out

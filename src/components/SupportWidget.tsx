@@ -2,10 +2,21 @@ import { useState, useRef, useEffect } from "react";
 import { useCustomerMessages, getSessionId, setSessionId } from "../messages";
 import { ArrowRight, Close, Logo, SendArrow, WhatsApp } from "../icons";
 import { waLink, WHATSAPP_LOCAL } from "../whatsapp";
+import { cloudConfigured, errorMessage } from "../cloud";
+import { useCloudAuth } from "../CloudAuth";
+import ConnectionNotice from "./ConnectionNotice";
+import Captcha, { captchaEnabled } from "./Captcha";
 import { cn } from "../utils/cn";
 
 export default function SupportWidget() {
-  const { messages, addMessage, addCustomerReply } = useCustomerMessages();
+  const { messages, addMessage, addCustomerReply, error: syncError, loading, updatedAt } = useCustomerMessages();
+  const { session } = useCloudAuth();
+  const [busy, setBusy] = useState(false);
+  const sending = useRef(false);
+  const [sendError, setSendError] = useState("");
+  const [captchaToken, setCaptchaToken] = useState("");
+  const [captchaReset, setCaptchaReset] = useState(0);
+  const [ended, setEnded] = useState(false);
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"home" | "chat">("home");
 
@@ -18,7 +29,9 @@ export default function SupportWidget() {
   const endRef = useRef<HTMLDivElement>(null);
   const [seenCount, setSeenCount] = useState(0);
 
-  const convo = sessionId ? messages.find((m) => m.id === sessionId) ?? null : null;
+  const convo = ended ? null : messages.find((m) => m.id === sessionId) ?? messages[0] ?? null;
+  const conversationId = convo?.id;
+  useEffect(() => { setEnded(false); setSendError(""); }, [session?.user.id]);
   const thread = convo?.thread ?? [];
 
   // unread admin replies while the panel is closed
@@ -32,29 +45,41 @@ export default function SupportWidget() {
     if (open && tab === "chat") endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [thread.length, open, tab]);
 
-  const startChat = () => {
-    if (!name.trim() || !text.trim()) return;
-    const msg = addMessage({
-      customerName: name.trim(),
-      customerPhone: phone.trim(),
-      customerEmail: email.trim(),
-      message: text.trim(),
-    });
-    setSessionId(msg.id);
-    setSession(msg.id);
-    setText("");
-    setTab("chat");
+  const startChat = async () => {
+    if (sending.current || !name.trim() || !text.trim()) return;
+    sending.current = true;
+    setBusy(true);
+    setSendError("");
+    try {
+      const msg = await addMessage({ customerName: name.trim(), customerPhone: phone.trim(),
+        customerEmail: email.trim(), message: text.trim() }, captchaToken);
+      setSessionId(msg.id);
+      setSession(msg.id);
+      setEnded(false);
+      setText("");
+      setTab("chat");
+    } catch (error) { setSendError(errorMessage(error)); }
+    finally {
+      sending.current = false;
+      setBusy(false);
+      setCaptchaToken("");
+      setCaptchaReset((value) => value + 1);
+    }
   };
-
-  const sendReply = () => {
-    if (!draft.trim() || !sessionId) return;
-    addCustomerReply(sessionId, draft.trim());
-    setDraft("");
+  const sendReply = async () => {
+    if (sending.current || !draft.trim() || !conversationId) return;
+    sending.current = true;
+    setBusy(true);
+    setSendError("");
+    try { await addCustomerReply(conversationId, draft.trim()); setDraft(""); }
+    catch (error) { setSendError(errorMessage(error)); }
+    finally { sending.current = false; setBusy(false); }
   };
 
   const endChat = () => {
     try { window.localStorage.removeItem("pso-support-session"); } catch { /* ignore */ }
     setSession(null);
+    setEnded(true);
     setName(""); setEmail(""); setPhone(""); setText(""); setDraft("");
   };
 
@@ -77,14 +102,14 @@ export default function SupportWidget() {
       </button>
 
       {open && (
-        <div className="fixed bottom-22 right-5 z-50 flex h-[540px] max-h-[80vh] w-full max-w-[380px] flex-col overflow-hidden rounded-2xl border border-line bg-coal shadow-2xl">
+        <div className="fixed bottom-22 right-5 z-50 flex h-[540px] max-h-[80vh] w-[calc(100vw-2.5rem)] max-w-[380px] flex-col overflow-hidden rounded-2xl border border-line bg-coal shadow-2xl">
           <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
             <div className="flex items-center gap-2.5">
               <Logo className="h-8 w-8" />
               <div>
                 <h3 className="font-display text-[14px] font-bold text-paper">PSO Support</h3>
                 <p className="font-mono text-[9px] tracking-[0.2em] text-fog uppercase">
-                  {convo ? "live · you're connected" : "online · usually replies fast"}
+                  {syncError ? "connection interrupted" : "Customer support · messages saved online"}
                 </p>
               </div>
             </div>
@@ -94,6 +119,7 @@ export default function SupportWidget() {
             </span>
           </div>
 
+          <div className="shrink-0 px-4"><ConnectionNotice error={sendError || syncError} loading={loading} updatedAt={updatedAt} /></div>
           <div className="flex border-b border-line">
             {(["home", "chat"] as const).map((t) => (
               <button
@@ -141,9 +167,10 @@ export default function SupportWidget() {
                 <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name *" className="w-full rounded-lg border border-line bg-steel px-3.5 py-2.5 text-[13px] text-paper outline-none placeholder:text-fog/50 focus:border-oil" />
                 <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone (optional)" className="w-full rounded-lg border border-line bg-steel px-3.5 py-2.5 text-[13px] text-paper outline-none placeholder:text-fog/50 focus:border-oil" />
                 <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email (optional)" className="w-full rounded-lg border border-line bg-steel px-3.5 py-2.5 text-[13px] text-paper outline-none placeholder:text-fog/50 focus:border-oil" />
-                <textarea rows={3} value={text} onChange={(e) => setText(e.target.value)} placeholder="Type your message... *" className="w-full resize-none rounded-lg border border-line bg-steel px-3.5 py-2.5 text-[13px] text-paper outline-none placeholder:text-fog/50 focus:border-oil" />
-                <button onClick={startChat} disabled={!name.trim() || !text.trim()} className="flex w-full items-center justify-center gap-2 rounded-full bg-oil py-3 font-display text-[13px] font-bold tracking-wide text-paper uppercase transition-colors hover:bg-paper hover:text-ink disabled:opacity-40">
-                  <SendArrow className="h-4 w-4" /> Start conversation
+                <textarea rows={3} maxLength={4000} disabled={busy} value={text} onChange={(e) => setText(e.target.value)} placeholder="Type your message... *" className="w-full resize-none rounded-lg border border-line bg-steel px-3.5 py-2.5 text-[13px] text-paper outline-none placeholder:text-fog/50 focus:border-oil" />
+                {!session && <Captcha onToken={setCaptchaToken} resetKey={captchaReset} />}
+                <button onClick={startChat} disabled={busy || loading || !cloudConfigured || !name.trim() || !text.trim() || (captchaEnabled && !session && !captchaToken)} className="flex w-full items-center justify-center gap-2 rounded-full bg-oil py-3 font-display text-[13px] font-bold tracking-wide text-paper uppercase transition-colors hover:bg-paper hover:text-ink disabled:opacity-40">
+                  <SendArrow className="h-4 w-4" /> {busy ? "Sending…" : "Start conversation"}
                 </button>
               </div>
             ) : (
@@ -166,28 +193,22 @@ export default function SupportWidget() {
                       </div>
                     </div>
                   ))}
-                  {convo.status !== "replied" && (
-                    <div className="flex justify-start">
-                      <div className="rounded-xl rounded-bl-sm border border-line bg-panel px-3.5 py-2.5">
-                        <span className="flex gap-1">
-                          <Dot delay="0s" /><Dot delay="0.2s" /><Dot delay="0.4s" />
-                        </span>
-                      </div>
-                    </div>
-                  )}
+                  {convo.status !== "replied" && <p className="text-center text-xs text-fog">Message saved. Our team will reply here.</p>}
                   <div ref={endRef} />
                 </div>
 
                 <div className="border-t border-line px-4 py-3">
                   <div className="flex gap-2">
                     <input
+                      maxLength={4000}
+                      disabled={busy}
                       value={draft}
                       onChange={(e) => setDraft(e.target.value)}
                       onKeyDown={(e) => { if (e.key === "Enter" && draft.trim()) sendReply(); }}
                       placeholder="Type your message…"
-                      className="flex-1 rounded-full border border-line bg-steel px-4 py-2.5 text-[13px] text-paper outline-none placeholder:text-fog/50 focus:border-oil"
+                      className="min-w-0 flex-1 rounded-full border border-line bg-steel px-4 py-2.5 text-[13px] text-paper outline-none placeholder:text-fog/50 focus:border-oil"
                     />
-                    <button onClick={sendReply} disabled={!draft.trim()} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-oil text-paper transition-transform hover:scale-105 disabled:opacity-40">
+                    <button onClick={sendReply} disabled={busy || !draft.trim()} aria-label="Send message" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-oil text-paper transition-transform hover:scale-105 disabled:opacity-40">
                       <SendArrow className="h-4 w-4" />
                     </button>
                   </div>
@@ -202,9 +223,6 @@ export default function SupportWidget() {
   );
 }
 
-function Dot({ delay }: { delay: string }) {
-  return <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-fog" style={{ animationDelay: delay }} />;
-}
 function ChatBubble({ className }: { className?: string }) {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" /></svg>;
 }

@@ -1,160 +1,60 @@
-import { useEffect, useState } from "react";
+import { useCloudAuth } from "./CloudAuth";
+import { notifyCloudChanged, requireCloud } from "./cloud";
+import { readAll, useCloudData } from "./useCloudData";
 
-export type AuthProvider = "google" | "facebook" | "email";
-
+export type AuthProvider = "email";
 export type Customer = {
-  id: string;
-  name: string;
-  email: string;
-  phone?: string;
-  address?: string;
-  city?: string;
-  provider: AuthProvider;
-  avatar?: string;
-  createdAt: string;
+  id: string; name: string; email: string; phone?: string; address?: string;
+  city?: string; provider: AuthProvider; avatar?: string; createdAt: string;
 };
-
-type StoredAccount = Customer & { passwordHash?: string };
-
-const ACCOUNTS_KEY = "pso-customer-accounts";
-const SESSION_KEY = "pso-customer-session";
-const NOTIFS_KEY = "pso-signup-notifications";
-
-export type SignupNotification = {
-  id: string;
-  name: string;
-  email: string;
-  password: string;
-  provider: AuthProvider;
-  createdAt: string;
-  read: boolean;
-};
-
-export function getSignupNotifications(): SignupNotification[] {
-  try {
-    const raw = window.localStorage.getItem(NOTIFS_KEY);
-    return raw ? (JSON.parse(raw) as SignupNotification[]) : [];
-  } catch {
-    return [];
-  }
+type ProfileRow = { id: string; name: string; email: string; phone: string; address: string; city: string; created_at: string };
+const TABLES = ["customer_profiles"];
+const toCustomer = (row: ProfileRow): Customer => ({ ...row, provider: "email", createdAt: row.created_at });
+async function loadProfiles() {
+  const client = requireCloud();
+  return (await readAll<ProfileRow>((from, to) => client.from("customer_profiles").select("id,name,email,phone,address,city,created_at").order("created_at", { ascending: false }).order("id").range(from, to))).map(toCustomer);
 }
-
-export function markNotifRead(id: string) {
-  const list = getSignupNotifications().map((n) => (n.id === id ? { ...n, read: true } : n));
-  window.localStorage.setItem(NOTIFS_KEY, JSON.stringify(list));
+export function useAccounts(enabled = true) {
+  const { data: accounts, ...sync } = useCloudData(TABLES, loadProfiles, enabled);
+  return { accounts, ...sync };
 }
-
-function addSignupNotification(n: Omit<SignupNotification, "id" | "read">) {
-  const list = getSignupNotifications();
-  window.localStorage.setItem(NOTIFS_KEY, JSON.stringify([{ ...n, id: `N-${Date.now().toString(36)}`, read: false }, ...list]));
-}
-
-/** Not real cryptography — this is a static, backend-less site. Good enough to stop
- *  plaintext passwords sitting in localStorage for a demo; a production build should
- *  authenticate against a real server instead. */
-function hash(pw: string): string {
-  try {
-    return btoa(unescape(encodeURIComponent(`pso::${pw}::salt`)));
-  } catch {
-    return pw;
-  }
-}
-
-function loadAccounts(): StoredAccount[] {
-  try {
-    const raw = window.localStorage.getItem(ACCOUNTS_KEY);
-    return raw ? (JSON.parse(raw) as StoredAccount[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveAccounts(list: StoredAccount[]) {
-  try {
-    window.localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(list));
-  } catch {
-    /* ignore */
-  }
-}
-
-function toPublic(a: StoredAccount): Customer {
-  const { passwordHash: _drop, ...pub } = a;
-  return pub;
-}
-
 export function useCustomerAuth() {
-  const [customer, setCustomer] = useState<Customer | null>(() => {
-    try {
-      const raw = window.localStorage.getItem(SESSION_KEY);
-      return raw ? (JSON.parse(raw) as Customer) : null;
-    } catch {
-      return null;
+  const { session } = useCloudAuth();
+  const user = session?.user;
+  // Profile reads are owner-only unless the session is an administrator.
+  const { accounts } = useAccounts(Boolean(user && !user.is_anonymous));
+  const customer = user && !user.is_anonymous ? accounts.find((p) => p.id === user.id) ?? {
+    id: user.id, name: String(user.user_metadata.name || user.email?.split("@")[0] || "Customer"),
+    email: user.email ?? "", provider: "email" as const, createdAt: user.created_at,
+  } : null;
+  const signUpEmail = async (name: string, email: string, password: string, captchaToken?: string) => {
+    const client = requireCloud();
+    const { data: current } = await client.auth.getSession();
+    // Upgrade a guest identity so orders and conversations keep their owner.
+    if (current.session?.user.is_anonymous) {
+      const { data, error } = await client.auth.updateUser({ email: email.trim().toLowerCase(), password, data: { name: name.trim() } }, { emailRedirectTo: window.location.origin });
+      if (error) throw error;
+      return { name: name.trim(), needsConfirmation: !data.user?.email_confirmed_at };
     }
-  });
-
-  useEffect(() => {
-    try {
-      if (customer) window.localStorage.setItem(SESSION_KEY, JSON.stringify(customer));
-      else window.localStorage.removeItem(SESSION_KEY);
-    } catch {
-      /* ignore */
-    }
-  }, [customer]);
-
-  const signUpEmail = (name: string, email: string, password: string) => {
-    const accounts = loadAccounts();
-    const clean = email.trim().toLowerCase();
-    if (accounts.some((a) => a.email.toLowerCase() === clean)) {
-      throw new Error("An account with this email already exists — try logging in instead.");
-    }
-    const account: StoredAccount = {
-      id: `cus_${Date.now().toString(36)}`,
-      name: name.trim(),
-      email: clean,
-      provider: "email",
-      passwordHash: hash(password),
-      createdAt: new Date().toISOString(),
-    };
-    saveAccounts([...accounts, account]);
-    setCustomer(toPublic(account));
-
-    // notify admin
-    addSignupNotification({
-      name: name.trim(),
-      email: clean,
-      password,
-      provider: "email",
-      createdAt: new Date().toISOString(),
-    });
-
-    return toPublic(account);
+    const { data, error } = await client.auth.signUp({ email: email.trim().toLowerCase(), password,
+      options: { data: { name: name.trim() }, captchaToken, emailRedirectTo: window.location.origin } });
+    if (error) throw error;
+    return { name: name.trim(), needsConfirmation: !data.session };
   };
-
-  const loginEmail = (email: string, password: string) => {
-    const accounts = loadAccounts();
-    const clean = email.trim().toLowerCase();
-    const account = accounts.find((a) => a.email.toLowerCase() === clean && a.provider === "email");
-    if (!account || account.passwordHash !== hash(password)) {
-      throw new Error("Incorrect email or password.");
-    }
-    setCustomer(toPublic(account));
-    return toPublic(account);
+  const loginEmail = async (email: string, password: string, captchaToken?: string) => {
+    const { data, error } = await requireCloud().auth.signInWithPassword({ email: email.trim().toLowerCase(), password, options: { captchaToken } });
+    if (error) throw error;
+    return { name: String(data.user.user_metadata.name || data.user.email?.split("@")[0] || "Customer") };
   };
-
-  const updateProfile = (patch: Partial<Customer>) => {
+  const updateProfile = async (patch: Pick<Customer, "phone" | "address" | "city">) => {
     if (!customer) return;
-    const accounts = loadAccounts();
-    const next = { ...customer, ...patch };
-    saveAccounts(accounts.map((a) => (a.id === customer.id ? { ...a, ...patch } : a)));
-    setCustomer(next);
+    const { error } = await requireCloud().from("customer_profiles").update(patch).eq("id", customer.id);
+    if (error) throw error;
+    notifyCloudChanged();
   };
-
-  const logout = () => setCustomer(null);
-
+  const logout = async () => {
+    const { error } = await requireCloud().auth.signOut();
+    if (error) throw error;
+  };
   return { customer, signUpEmail, loginEmail, updateProfile, logout };
-}
-
-/** Read all customer accounts (for the admin dashboard). */
-export function getAllAccounts(): Customer[] {
-  return loadAccounts().map(toPublic);
 }
