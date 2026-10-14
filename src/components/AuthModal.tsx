@@ -1,6 +1,9 @@
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { useCustomerAuth } from "../customerAuth";
 import { Check, Close, Eye, EyeOff, Logo } from "../icons";
+import { cloudConfigured, errorMessage } from "../cloud";
+import ConnectionNotice from "./ConnectionNotice";
+import Captcha, { captchaEnabled } from "./Captcha";
 import { cn } from "../utils/cn";
 
 type Mode = "signin" | "signup";
@@ -8,6 +11,10 @@ type Mode = "signin" | "signup";
 export default function AuthModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { signUpEmail, loginEmail } = useCustomerAuth();
 
+  const [busy, setBusy] = useState(false);
+  const sending = useRef(false);
+  const [captchaToken, setCaptchaToken] = useState("");
+  const [captchaReset, setCaptchaReset] = useState(0);
   const [mode, setMode] = useState<Mode>("signup");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -24,23 +31,31 @@ export default function AuthModal({ open, onClose }: { open: boolean; onClose: (
     onClose();
   };
 
-  const submit = (e: FormEvent) => {
+  const submit = async (e: FormEvent) => {
     e.preventDefault();
+    if (sending.current) return;
+    sending.current = true;
+    setBusy(true);
     setError("");
     try {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim())) throw new Error("Enter a valid email address.");
-      if (password.length < 6) throw new Error("Password must be at least 6 characters.");
+      if (mode === "signup" && password.length < 8) throw new Error("Password must be at least 8 characters.");
       if (mode === "signup") {
         if (name.trim().length < 2) throw new Error("Please enter your full name.");
-        const c = signUpEmail(name, email, password);
-        setSuccess(`Welcome, ${c.name.split(" ")[0]}! Your account is ready.`);
+        const c = await signUpEmail(name, email, password, captchaToken);
+        setSuccess(c.needsConfirmation ? "Check your email to confirm your account, then sign in." : `Welcome, ${c.name.split(" ")[0]}! Your account is ready.`);
       } else {
-        const c = loginEmail(email, password);
+        const c = await loginEmail(email, password, captchaToken);
         setSuccess(`Welcome back, ${c.name.split(" ")[0]}!`);
       }
-      window.setTimeout(close, 900);
+      setPassword("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong.");
+      setError(errorMessage(err));
+    } finally {
+      sending.current = false;
+      setBusy(false);
+      setCaptchaToken("");
+      setCaptchaReset((value) => value + 1);
     }
   };
 
@@ -102,7 +117,7 @@ export default function AuthModal({ open, onClose }: { open: boolean; onClose: (
                 <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@email.com" className={field} />
               </label>
               <label className="block">
-                <span className={label}>Password {mode === "signup" && "(min 6 characters)"}</span>
+                <span className={label}>Password {mode === "signup" && "(min 8 characters)"}</span>
                 <div className="relative">
                   <input type={showPw ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className={cn(field, "pr-10")} />
                   <button type="button" onClick={() => setShowPw((s) => !s)} className="absolute top-1/2 right-3 -translate-y-1/2 text-slate-400 hover:text-slate-600" aria-label={showPw ? "Hide password" : "Show password"}>
@@ -110,9 +125,9 @@ export default function AuthModal({ open, onClose }: { open: boolean; onClose: (
                   </button>
                 </div>
               </label>
-              {error && <p className="font-mono text-[11px] text-[#d64545]">{error}</p>}
-              <button type="submit" className="shine w-full rounded-lg bg-[#009a44] py-3.5 font-display text-[13.5px] font-bold tracking-[0.12em] text-white uppercase transition-colors hover:bg-[#007a38]">
-                {mode === "signup" ? "Create account" : "Sign in"}
+              <ConnectionNotice error={error} /><Captcha onToken={setCaptchaToken} resetKey={captchaReset} />
+              <button type="submit" disabled={busy || !cloudConfigured || (captchaEnabled && !captchaToken)} className="shine w-full rounded-lg bg-[#009a44] py-3.5 font-display text-[13.5px] font-bold tracking-[0.12em] text-white uppercase transition-colors hover:bg-[#007a38]">
+                {busy ? "Please wait…" : mode === "signup" ? "Create account" : "Sign in"}
               </button>
               <p className="text-center font-mono text-[11.5px] text-slate-500">
                 {mode === "signup" ? "Already have an account?" : "New to PSO Lubricants?"}{" "}

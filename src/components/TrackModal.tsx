@@ -1,34 +1,56 @@
 import { useEffect, useState } from "react";
 import { TRACKING_STATUSES, DECLINED_STATUS } from "../data";
-import { readOrders, searchOrders, formatMoney, type Order } from "../orders";
+import { useOrders, trackOrders, formatMoney, type TrackedOrder } from "../orders";
 import { waLink } from "../whatsapp";
 import { Check, Close, Logo, WhatsApp } from "../icons";
+import { cloudConfigured, errorMessage } from "../cloud";
+import ConnectionNotice from "./ConnectionNotice";
 import { cn } from "../utils/cn";
 
 export default function TrackModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [query, setQuery] = useState("");
   const [searched, setSearched] = useState(false);
-  const [recent, setRecent] = useState<Order[]>([]);
-
-  // fresh read from storage every time the modal opens, so codes created moments ago work
+  const { orders: ownOrders } = useOrders(open);
+  const recent = ownOrders.slice(0, 3);
+  const [phone, setPhone] = useState("");
+  const [found, setFound] = useState<TrackedOrder[]>([]);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [lookup, setLookup] = useState<{ code: string; phone: string } | null>(null);
   useEffect(() => {
-    if (open) {
-      setRecent(readOrders().slice(0, 3));
-      setSearched(false);
-    }
+    if (open) { setSearched(false); setFound([]); setError(""); setLookup(null); }
   }, [open]);
-
+  useEffect(() => {
+    if (!open || !lookup || !searched) return;
+    let active = true;
+    let running = false;
+    setLoading(true);
+    const refresh = async () => {
+      if (running) return;
+      running = true;
+      try {
+        const orders = await trackOrders(lookup.code, lookup.phone);
+        if (active) { setFound(orders); setError(""); }
+      } catch (failure) {
+        if (active) setError(errorMessage(failure));
+      } finally { running = false; if (active) setLoading(false); }
+    };
+    void refresh();
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void refresh(); }, 15000);
+    const reconnect = () => { void refresh(); };
+    window.addEventListener("online", reconnect);
+    return () => { active = false; clearInterval(timer); window.removeEventListener("online", reconnect); };
+  }, [open, lookup, searched]);
+  const search = (code = query, buyerPhone = phone) => {
+    if (code.replace(/[^a-z0-9]/gi, "").length < 20 || buyerPhone.replace(/\D/g, "").length < 10) return;
+    setFound([]); setError(""); setLoading(true); setSearched(true); setLookup({ code, phone: buyerPhone });
+  };
   if (!open) return null;
-
-  const order = searched ? searchOrders(readOrders(), query) : null;
-  const declined = order?.status === "declined";
-  const steps = declined ? null : TRACKING_STATUSES;
-  const currentIdx = order && steps ? steps.findIndex((s) => s.id === order.status) : -1;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-[#04122b]/80 backdrop-blur-sm" onClick={onClose} aria-hidden="true" />
-      <div className="relative w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+      <div className="relative max-h-[92dvh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
         {/* header */}
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 sm:px-7">
           <div className="flex items-center gap-3">
@@ -51,32 +73,36 @@ export default function TrackModal({ open, onClose }: { open: boolean; onClose: 
                 autoFocus
                 value={query}
                 onChange={(e) => { setQuery(e.target.value); setSearched(false); }}
-                onKeyDown={(e) => { if (e.key === "Enter" && query.trim()) setSearched(true); }}
+                onKeyDown={(e) => { if (e.key === "Enter") search(); }}
                 placeholder="Paste the code from your order confirmation"
                 className="w-full rounded-lg border border-slate-300 px-3.5 py-3 font-mono text-[13.5px] tracking-wide text-[#0b2545] uppercase outline-none transition-colors placeholder:normal-case placeholder:tracking-normal placeholder:text-slate-400 focus:border-[#009a44]"
               />
               <button
-                onClick={() => setSearched(true)}
-                disabled={query.trim().length < 5}
+                onClick={() => search()}
+                disabled={!cloudConfigured || loading || query.replace(/[^a-z0-9]/gi, "").length < 20 || phone.replace(/\D/g, "").length < 10}
                 className="shrink-0 rounded-lg bg-[#009a44] px-6 font-display text-[13px] font-bold tracking-[0.14em] text-white uppercase transition-colors hover:bg-[#007a38] disabled:opacity-40"
               >
                 Track
               </button>
             </div>
           </label>
+          <label className="mt-4 block text-xs text-slate-600">Phone number used for this order
+            <input type="tel" autoComplete="tel" value={phone} onChange={(e) => { setPhone(e.target.value); setSearched(false); }} placeholder="03001234567" className="mt-2 w-full rounded-lg border border-slate-300 px-3.5 py-3 text-sm text-[#0b2545]" />
+          </label>
+          <ConnectionNotice error={error} loading={loading && searched} />
           <p className="mt-2 font-mono text-[10.5px] text-slate-400">
-            Tip: spaces, dashes and small/capital letters don't matter — paste it exactly as you received it.
+            Use the complete code and the same phone number as checkout. Updates refresh automatically every 15 seconds.
           </p>
 
           {/* recent orders placed on this device — one tap to track */}
           {recent.length > 0 && !searched && (
             <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="font-mono text-[10px] tracking-[0.18em] text-slate-500 uppercase">Your recent orders on this device</p>
+              <p className="font-mono text-[10px] tracking-[0.18em] text-slate-500 uppercase">Your recent orders in this session</p>
               <div className="mt-2.5 flex flex-wrap gap-2">
                 {recent.map((o) => (
                   <button
                     key={o.id}
-                    onClick={() => { setQuery(o.tracking); setSearched(true); }}
+                    onClick={() => { setQuery(o.tracking); setPhone(o.phone); search(o.tracking, o.phone); }}
                     className="rounded-full border border-[#009a44]/40 bg-white px-3.5 py-1.5 font-mono text-[11px] text-[#009a44] transition-colors hover:bg-[#009a44] hover:text-white"
                   >
                     {o.tracking}
@@ -86,16 +112,18 @@ export default function TrackModal({ open, onClose }: { open: boolean; onClose: 
             </div>
           )}
 
-          {searched && !order && (
+          {searched && !loading && !error && found.length === 0 && (
             <div className="mt-5 rounded-xl border border-[#d64545]/40 bg-[#d64545]/5 p-4 font-mono text-[12px] leading-relaxed text-[#a13232]">
-              No dispatch found for “{query}”. Double-check the code on your order confirmation (it looks like
-              <span className="font-bold"> PSO-2026-12345678</span> or <span className="font-bold">K7M2P9Q4XW3N</span>),
-              or WhatsApp us at 03077885585 and we'll look it up for you.
+              No order matched that complete code and phone number. Check both details, or WhatsApp us at 03077885585 for help.
             </div>
           )}
 
-          {order && (
-            <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-5">
+          {searched && found.map((order) => {
+            const declined = order.status === "declined";
+            const steps = declined ? null : TRACKING_STATUSES;
+            const currentIdx = steps ? steps.findIndex((step) => step.id === order.status) : -1;
+            return (
+            <div key={order.id} className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-5">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <span className="font-mono text-[11px] text-slate-500">{order.id}</span>
@@ -155,7 +183,7 @@ export default function TrackModal({ open, onClose }: { open: boolean; onClose: 
                 <WhatsApp className="h-4 w-4" /> Need a faster update? WhatsApp 03077885585
               </a>
             </div>
-          )}
+          ); })}
         </div>
       </div>
     </div>

@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { completeRequest, ensureSession, notifyCloudChanged, requestId, requireCloud } from "./cloud";
+import { useCloudData, readAll } from "./useCloudData";
 import { PRODUCTS, DELIVERY_ZONES, type Product } from "./data";
 
 export type PaymentMethod = "easypaisa" | "jazzcash" | "cod" | "bank";
@@ -36,85 +37,45 @@ export type Order = {
   status: TrackingStatus;
 };
 
-const KEY = "pso-orders-v1";
-
-const CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-
-/** Always reads the freshest orders straight from storage — never a stale in-memory copy. */
-export function readOrders(): Order[] {
-  try {
-    const raw = window.localStorage.getItem(KEY);
-    return raw ? (JSON.parse(raw) as Order[]) : [];
-  } catch {
-    return [];
-  }
+export type OrderRow = { id: string; tracking: string; created_at: string; status: TrackingStatus; details: Omit<Order, "id" | "tracking" | "date" | "status"> };
+export function toOrder(row: OrderRow): Order {
+  return { ...row.details, id: row.id, tracking: row.tracking, date: row.created_at, status: row.status };
 }
-
-/** Forgiving lookup: ignores case, spaces and dashes; accepts the order number OR the
- *  tracking code, in full or in part (as long as the fragment is meaningful). */
-export function searchOrders(list: Order[], query: string): Order | null {
-  const norm = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  const nq = norm(query);
-  if (nq.length < 5) return null;
-  return (
-    list.find((o) => {
-      const nid = norm(o.id);
-      const ntr = norm(o.tracking);
-      return nid === nq || ntr === nq || nid.includes(nq) || ntr.includes(nq);
-    }) ?? null
-  );
+const TABLES = ["orders"];
+async function loadOrders() {
+  const client = requireCloud();
+  const rows = await readAll<OrderRow>((from, to) => client.from("orders").select("id,tracking,created_at,status,details").order("created_at", { ascending: false }).order("id").range(from, to));
+  return rows.map(toOrder);
 }
-
-function genId(): string {
-  const year = new Date().getFullYear();
-  const rand = Array.from({ length: 8 }, () => Math.floor(Math.random() * 10)).join("");
-  return `PSO-${year}-${rand}`;
+export type CheckoutCustomer = Pick<Order, "customer" | "phone" | "email" | "address" | "city" | "zone" | "method" | "transactionId" | "notes">;
+export async function createCheckout(items: { productId: string; qty: number }[], customer: CheckoutCustomer, captchaToken?: string) {
+  const client = await ensureSession(captchaToken);
+  const { data: sessionData } = await client.auth.getSession();
+  const scope = `checkout-${sessionData.session!.user.id}`;
+  const payload = { items, customer };
+  const id = await requestId(scope, payload);
+  const { data, error } = await client.rpc("create_checkout", { p_request_id: id, p_items: items, p_customer: customer });
+  if (error) throw error;
+  if (!data?.length) throw new Error("The server did not confirm your order. Please retry.");
+  const orders = (data as OrderRow[]).map(toOrder);
+  await completeRequest(scope, payload);
+  notifyCloudChanged();
+  return orders;
 }
-
-function genTracking(): string {
-  return Array.from({ length: 12 }, () => CHARS[Math.floor(Math.random() * CHARS.length)]).join("");
+export type TrackedOrder = Pick<Order, "id" | "tracking" | "date" | "status" | "productName" | "qty" | "total" | "city">;
+export async function trackOrders(code: string, phone: string): Promise<TrackedOrder[]> {
+  const { data, error } = await requireCloud().rpc("track_order", { p_code: code, p_phone: phone });
+  if (error) throw error;
+  return data ?? [];
 }
-
-export function useOrders() {
-  const [orders, setOrders] = useState<Order[]>(() => {
-    try {
-      const raw = window.localStorage.getItem(KEY);
-      return raw ? (JSON.parse(raw) as Order[]) : [];
-    } catch {
-      return [];
-    }
-  });
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(KEY, JSON.stringify(orders));
-    } catch {
-      /* ignore */
-    }
-  }, [orders]);
-
-  const addOrder = (o: Omit<Order, "id" | "tracking" | "date" | "status">, sharedTracking?: string) => {
-    const id = genId();
-    const tracking = sharedTracking || genTracking();
-    const order: Order = { ...o, id, tracking, date: new Date().toISOString(), status: "pending" };
-    setOrders((prev) => [order, ...prev]);
-    return order;
+export function useOrders(enabled = true) {
+  const { data: orders, ...sync } = useCloudData(TABLES, loadOrders, enabled);
+  const updateStatus = async (id: string, status: TrackingStatus) => {
+    const { error } = await requireCloud().rpc("set_order_status", { p_id: id, p_status: status });
+    if (error) throw error;
+    notifyCloudChanged();
   };
-
-  const updateStatus = (id: string, status: TrackingStatus) =>
-    setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, status } : o)));
-
-  const findOrder = (query: string) => searchOrders(readOrders(), query);
-
-  const totals = {
-    count: orders.length,
-    revenue: orders.reduce((s, o) => s + o.total, 0),
-    pending: orders.filter((o) => o.status === "pending").length,
-    processing: orders.filter((o) => o.status === "processing").length,
-    completed: orders.filter((o) => o.status === "delivered").length,
-  };
-
-  return { orders, addOrder, updateStatus, findOrder, totals };
+  return { orders, updateStatus, ...sync };
 }
 
 export function formatMoney(n: number) {
