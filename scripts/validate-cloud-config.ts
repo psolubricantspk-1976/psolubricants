@@ -13,16 +13,29 @@ export function resolveCloudConfig(env: Environment) {
   return { url: url ?? "", key: key ?? "" };
 }
 
+/** Supabase's own website/dashboard and the .env.example placeholder are never a project's API address. */
+function isNotAProjectHost(host: string) {
+  return host === "supabase.co" || host === "www.supabase.co"
+    || host === "supabase.com" || host.endsWith(".supabase.com")
+    || host.startsWith("your_project_ref.");
+}
+
 // Runs before Vite builds so accidentally supplied secret keys never reach the bundle.
 export function validateCloudConfig(env: Record<string, string | undefined>) {
   const url = env.VITE_SUPABASE_URL?.trim();
   const key = env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim();
   if (!url && !key) return; // Unconfigured builds show an explicit setup notice.
   if (!url || !key) throw new Error("Set both VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY, then rebuild.");
+  let host = "";
   try {
     const parsed = new URL(url);
     if (parsed.protocol !== "https:" || !parsed.hostname || parsed.username || parsed.password) throw new Error();
+    host = parsed.hostname;
   } catch { throw new Error("VITE_SUPABASE_URL must be your HTTPS Supabase project URL."); }
+  // Fail the build rather than deploy a site whose orders and chat can never connect.
+  if (isNotAProjectHost(host)) {
+    throw new Error("The Supabase URL must be your own project URL, e.g. https://abcdefghijklmnopqrst.supabase.co, not Supabase's website or the example placeholder. Copy it from your project's Connect dialog in Supabase.");
+  }
   if (key.startsWith("sb_publishable_")) return;
   if (key.startsWith("sb_secret_")) throw new Error("Never place a Supabase secret key in VITE_ variables. Use the publishable key.");
   try {
