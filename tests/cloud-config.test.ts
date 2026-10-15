@@ -21,6 +21,24 @@ test("partial configuration and non-HTTPS URLs are rejected", () => {
   assert.throws(() => validateCloudConfig({ VITE_SUPABASE_URL: url }), /Set both/);
   assert.throws(() => validateCloudConfig({ ...config("sb_publishable_test_only"), VITE_SUPABASE_URL: "http://example.test" }), /HTTPS/);
 });
+test("Supabase's own website and the example placeholder are rejected as project URLs", () => {
+  for (const wrongUrl of [
+    "https://supabase.co", "https://www.supabase.co", "https://SUPABASE.CO/",
+    "https://supabase.com", "https://supabase.com/dashboard/project/abcdefghijklmnopqrst",
+    "https://app.supabase.com/project/abcdefghijklmnopqrst", "https://YOUR_PROJECT_REF.supabase.co",
+  ]) {
+    assert.throws(() => validateCloudConfig({ ...config("sb_publishable_test_only"), VITE_SUPABASE_URL: wrongUrl }), /not Supabase's website/, wrongUrl);
+  }
+  // Also caught when supplied through the Vercel/Next.js-style alias names.
+  assert.throws(() => resolveCloudConfig({
+    NEXT_PUBLIC_SUPABASE_URL: "https://supabase.co", NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_test_only",
+  }), /not Supabase's website/);
+});
+test("real project URLs and custom domains are still accepted", () => {
+  for (const projectUrl of ["https://abcdefghijklmnopqrst.supabase.co", "https://abcdefghijklmnopqrst.supabase.co/", "https://api.example.com"]) {
+    assert.doesNotThrow(() => validateCloudConfig({ ...config("sb_publishable_test_only"), VITE_SUPABASE_URL: projectUrl }), projectUrl);
+  }
+});
 
 test("Vercel public integration aliases map to the Vite client configuration", () => {
   for (const [urlName, keyName] of [

@@ -128,6 +128,7 @@ The demo's old customer-account/password storage is removed rather than uploaded
 ## Troubleshooting
 
 - **“Not connected yet”**: URL/key missing or invalid at build time, old deployment still open, or Arena preview not configured separately. Save the two variables and rebuild/restart.
+- **Build fails with “not Supabase's website”**: the URL variable is `https://supabase.co`, a `supabase.com` dashboard link, or the example placeholder. Replace it with your Project URL from the project's **Connect** dialog (`https://<project-ref>.supabase.co`) and redeploy. The previous successful deployment stays live until then.
 - **Anonymous sign-ins disabled**: enable Anonymous Sign-Ins in Supabase Auth.
 - **Schema cache / service needs configuration**: migration was not run successfully, wrong project selected, or function/table unavailable. Check the SQL Editor result and project URL.
 - **Admin access denied**: verify the account exists in `admin_users`; sign out and in again.
